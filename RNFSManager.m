@@ -12,7 +12,9 @@
 #import "Downloader.h"
 #import "Uploader.h"
 #import "RCTEventDispatcher.h"
-#import <CommonCrypto/CommonDigest.h>
+#import "RCTLog.h"
+#import "RCTRootView.h"
+
 
 @interface RNFSManager()
 
@@ -22,8 +24,11 @@
 @end
 
 @implementation RNFSManager
-
+@synthesize documentController;
 @synthesize bridge = _bridge;
+
+
+
 
 RCT_EXPORT_MODULE();
 
@@ -31,6 +36,29 @@ RCT_EXPORT_MODULE();
 {
   return dispatch_queue_create("pe.lum.rnfs", DISPATCH_QUEUE_SERIAL);
 }
+
+RCT_EXPORT_METHOD(previewDocument:(NSString*)uri scheme:(NSString *)scheme resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject
+{
+
+    NSURL * url = [[NSURL alloc] initWithString:uri];
+    documentController = [UIDocumentInteractionController interactionControllerWithURL:url];
+    UIViewController *rootCtrl = [[[[UIApplication sharedApplication] delegate] window] rootViewController];
+    documentController.delegate = self;
+    if(scheme == nil || [[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:scheme]]) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            [documentController  presentOptionsMenuFromRect:rootCtrl.view.bounds inView:rootCtrl.view animated:YES];
+        });
+        resolve(@[[NSNull null]]);
+    } else {
+        reject(@"RNFetchBlob could not open document", @"scheme is not supported", nil);
+    }
+})
+
+- (UIViewController *) documentInteractionControllerViewControllerForPreview: (UIDocumentInteractionController *) controller {
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    return window.rootViewController;
+}
+
 
 RCT_EXPORT_METHOD(readDir:(NSString *)dirPath
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -216,75 +244,6 @@ RCT_EXPORT_METHOD(readFile:(NSString *)filepath
   resolve(base64Content);
 }
 
-RCT_EXPORT_METHOD(hash:(NSString *)filepath
-                  algorithm:(NSString *)algorithm
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-{
-  BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:filepath];
-
-  if (!fileExists) {
-    return reject(@"ENOENT", [NSString stringWithFormat:@"ENOENT: no such file or directory, open '%@'", filepath], nil);
-  }
-
-  NSError *error = nil;
-
-  NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:filepath error:&error];
-
-  if (error) {
-    return [self reject:reject withError:error];
-  }
-
-  if ([attributes objectForKey:NSFileType] == NSFileTypeDirectory) {
-    return reject(@"EISDIR", @"EISDIR: illegal operation on a directory, read", nil);
-  }
-
-  NSData *content = [[NSFileManager defaultManager] contentsAtPath:filepath];
-
-  NSArray *keys = [NSArray arrayWithObjects:@"md5", @"sha1", @"sha224", @"sha256", @"sha384", @"sha512", nil];
-
-  NSArray *digestLengths = [NSArray arrayWithObjects:
-    @CC_MD5_DIGEST_LENGTH,
-    @CC_SHA1_DIGEST_LENGTH,
-    @CC_SHA224_DIGEST_LENGTH,
-    @CC_SHA256_DIGEST_LENGTH,
-    @CC_SHA384_DIGEST_LENGTH,
-    @CC_SHA512_DIGEST_LENGTH,
-    nil];
-
-  NSDictionary *keysToDigestLengths = [NSDictionary dictionaryWithObjects:digestLengths forKeys:keys];
-
-  int digestLength = [[keysToDigestLengths objectForKey:algorithm] intValue];
-
-  if (!digestLength) {
-    return reject(@"Error", [NSString stringWithFormat:@"Invalid hash algorithm '%@'", algorithm], nil);
-  }
-
-  unsigned char buffer[digestLength];
-
-  if ([algorithm isEqualToString:@"md5"]) {
-    CC_MD5(content.bytes, (CC_LONG)content.length, buffer);
-  } else if ([algorithm isEqualToString:@"sha1"]) {
-    CC_SHA1(content.bytes, (CC_LONG)content.length, buffer);
-  } else if ([algorithm isEqualToString:@"sha224"]) {
-    CC_SHA224(content.bytes, (CC_LONG)content.length, buffer);
-  } else if ([algorithm isEqualToString:@"sha256"]) {
-    CC_SHA256(content.bytes, (CC_LONG)content.length, buffer);
-  } else if ([algorithm isEqualToString:@"sha384"]) {
-    CC_SHA384(content.bytes, (CC_LONG)content.length, buffer);
-  } else if ([algorithm isEqualToString:@"sha512"]) {
-    CC_SHA512(content.bytes, (CC_LONG)content.length, buffer);
-  } else {
-    return reject(@"Error", [NSString stringWithFormat:@"Invalid hash algorithm '%@'", algorithm], nil);
-  }
-
-  NSMutableString *output = [NSMutableString stringWithCapacity:digestLength * 2];
-  for(int i = 0; i < digestLength; i++)
-    [output appendFormat:@"%02x",buffer[i]];
-
-  resolve(output);
-}
-
 RCT_EXPORT_METHOD(moveFile:(NSString *)filepath
                   destPath:(NSString *)destPath
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -336,10 +295,8 @@ RCT_EXPORT_METHOD(downloadFile:(NSDictionary *)options
   params.progressDivider = progressDivider;
 
   params.completeCallback = ^(NSNumber* statusCode, NSNumber* bytesWritten) {
-    NSMutableDictionary* result = [[NSMutableDictionary alloc] initWithDictionary: @{@"jobId": jobId}];
-    if (statusCode) {
-      [result setObject:statusCode forKey: @"statusCode"];
-    }
+    NSMutableDictionary* result = [[NSMutableDictionary alloc] initWithDictionary: @{@"jobId": jobId,
+                                                                                     @"statusCode": statusCode}];
     if (bytesWritten) {
       [result setObject:bytesWritten forKey: @"bytesWritten"];
     }

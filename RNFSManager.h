@@ -8,7 +8,9 @@
 
 #import "RCTBridgeModule.h"
 #import "RCTLog.h"
+#import <UIKit/UIKit.h>
 
-@interface RNFSManager : NSObject <RCTBridgeModule>
+@interface RNFSManager : NSObject <RCTBridgeModule,UIDocumentInteractionControllerDelegate>
+@property (retain) UIDocumentInteractionController * documentController;
 
 @end
