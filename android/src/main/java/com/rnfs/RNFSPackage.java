@@ -17,7 +17,7 @@ public class RNFSPackage implements ReactPackage {
     return modules;
   }
 
-  @Override
+  //@Override deprecated after version 0.47
   public List<Class<? extends JavaScriptModule>> createJSModules() {
     return Collections.emptyList();
   }
